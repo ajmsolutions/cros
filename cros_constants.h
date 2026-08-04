@@ -76,7 +76,7 @@
 #define BASKET_STATE_OPEN       1
 #define BASKET_STATE_CLOSED     0
 
-#define BASKET_REMAIN_OPEN_DURATION      5.0f
+#define BASKET_REMAIN_OPEN_DURATION      15.0f
 
 //======================================
 // Video Record
@@ -106,6 +106,8 @@
 #define INPUT_PIN_PERCH         2
 #define INPUT_PIN_COIN          3
 #define INPUT_PIN_PHASE_SELECT  4
+#define INPUT_PIN_IR_RX      5   // HX1838 (or compatible) IR receiver data pin
+#define OUTPUT_PIN_IR_TX     6   // IR LED transmitter (38 kHz NEC out for event codes)
 
 //======================================
 // Constants for servo behavior
@@ -145,8 +147,6 @@ typedef enum
   kError_EEPROM,
 } cros_error_code_t;
 
-#define DOOR_REOPEN_BLOCK_MS 2000  // 2 seconds minimum between door operations
-#define DOOR_MAX_OPEN_MS     30000 // 30 seconds maximum door open time
 
 #endif//CROS_CONSTANTS_H
 

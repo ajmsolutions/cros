@@ -6,18 +6,105 @@
 //
 // http://www.thecrowbox.com
 //==========================================================
-//   Except where otherwise noted, this work is licensed                                                                                                                           
+//   Except where otherwise noted, this work is licensed 
 //   under a Creative Commons Attribution-ShareAlike 4.0 
 //   International License
 //==========================================================
 #include <EEPROM.h>
 #include "cros_core.h"
+#include <IRremote.h>
 
-// Add actual definitions of the variables
-volatile bool g_coinBlinkPending = false;
-unsigned long lastTimeClosed = 0;
-unsigned long doorOpenedAt = 0;
-volatile bool g_coinSensorLow = false;  // Track if sensor is currently low
+// Add these pattern definitions at the top of the file, after the includes
+const uint32_t PHASE_ONE_DISPLAY[] = {
+    0x000C0000,  // "I"
+    0x000C0000,
+    0x000C0000
+};
+
+const uint32_t PHASE_TWO_DISPLAY[] = {
+    0x00CC0000,  // "II"
+    0x00CC0000,
+    0x00CC0000
+};
+
+const uint32_t PHASE_THREE_DISPLAY[] = {
+    0x0CCC0000,  // "III"
+    0x0CCC0000,
+    0x0CCC0000
+};
+
+const uint32_t PHASE_FOUR_DISPLAY[] = {
+    0xCCCC0000,  // "IIII"
+    0xCCCC0000,
+    0xCCCC0000
+};
+
+// Define the Roman numeral patterns
+const byte PATTERN_I[8][12] = {
+    { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+};
+
+const byte PATTERN_II[8][12] = {
+    { 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+};
+
+const byte PATTERN_III[8][12] = {
+    { 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0 },
+    { 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0 },
+    { 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0 },
+    { 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0 },
+    { 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0 },
+    { 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0 },
+    { 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0 },
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+};
+
+const byte PATTERN_IIII[8][12] = {
+    { 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0 },
+    { 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0 },
+    { 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0 },
+    { 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0 },
+    { 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0 },
+    { 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0 },
+    { 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0 },
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+};
+
+const byte PATTERN_O[8][12] = {
+    { 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+};
+
+const byte PATTERN_C[8][12] = {
+    { 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 },
+    { 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0 },
+    { 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0 },
+    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+};
 
 //==========================================================
 // Interrupt function called when the coin sensor is struck
@@ -25,27 +112,15 @@ volatile bool g_coinSensorLow = false;  // Track if sensor is currently low
 // Contact bounce (look it up) may cause this interrupt to fire
 // multiple times per coin, so the code within EnqueueCoin()
 // is designed to accept only one deposit per second so that 
-// each coin isn't counted multiple times due to contact bounce.                                          
+// each coin isn't counted multiple times due to contact bounce.
 //==========================================================
 void Interrupt_CoinDeposit()
 {
-    static unsigned long lastInterruptTime = 0;
-    unsigned long currentTime = millis();
-    unsigned long timeSinceLast = currentTime - lastInterruptTime;
-
-    // Only process if enough time has passed (200ms debounce)
-    if (timeSinceLast < 200) {
-        return;
-    }
-
-    // Only trigger on actual LOW state and store the time first
-    if (digitalRead(INPUT_PIN_COIN) == LOW) {
-        lastInterruptTime = currentTime;  // Store time before enqueueing
-        g_crOSCore.EnqueueCoin();
-        g_coinBlinkPending = true;
-    }
+    g_crOSCore.EnqueueCoin();
+    // Open basket first, then queue IR transmission
+    g_crOSCore.SetCoinDetected();
 }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+
 //----------------------------------------------------------
 // Simple function to pipe the provided string to serial
 //----------------------------------------------------------
@@ -109,16 +184,34 @@ CCrowboxCore::CCrowboxCore()
     // Initialize this to never for now. It will come to use 
     // later as birds come and go.
     m_uptimeScheduledBasketClose = TIME_NEVER;    
+    
+    // Initialize IR receiver and results
+    m_irReceiver = new IRrecv(INPUT_PIN_IR_RX);
+    m_irResults = new decode_results();
+    m_irReceiver->enableIRIn();
+
+    m_basketManualOverride = false;
+    m_coinDetected = false;
+    m_perchPressed = false;
+}
+
+CCrowboxCore::~CCrowboxCore()
+{
+    delete m_irReceiver;
+    delete m_irResults;
 }
 
 //----------------------------------------------------------
 //----------------------------------------------------------
 void CCrowboxCore::Setup()
 {
-#if defined( CROS_USE_SERIAL_DEBUG )
-    Serial.begin( CROS_SERIAL_BAUD_RATE ); 
-#endif//CROS_USE_SERIAL_DEBUG
- 
+    // Initialize Serial first thing
+    Serial.begin(CROS_SERIAL_BAUD_RATE);
+    delay(1000);  // Give serial port time to initialize
+    
+    Serial.println("\n\nCrowBox Starting Up...");
+    Serial.println("Serial communication initialized");
+    
     DebugPrint( "Setup() method CALLED...\n" );
  
     // Start with no enqueued deposits
@@ -201,107 +294,191 @@ void CCrowboxCore::Setup()
     // Ensure everything has settled out before proceeding. 
     delay( 1000 );
 
-    DebugPrint( "  Up and running!\n\n" );
-
-    // Configure coin sensor pin with internal pullup
-    pinMode(INPUT_PIN_COIN, INPUT_PULLUP);
-    
-    // Validate coin sensor initial state
-    delay(100); // Let pin stabilize
-    if (digitalRead(INPUT_PIN_COIN) != HIGH) {
-        DebugPrint("Warning: Coin sensor not in expected state\n");
-        // Could be a stuck contact or wiring issue
+    // Initialize Serial communication with proper baud rate
+    Serial.begin(CROS_SERIAL_BAUD_RATE);
+    while (!Serial) {
+        ; // Wait for serial port to connect
     }
     
-    // Configure coin interrupt with noise filtering
-    attachInterrupt(digitalPinToInterrupt(INPUT_PIN_COIN), 
-                   Interrupt_CoinDeposit, 
-                   FALLING);
-
-    // Add near start of Setup()
-    matrix.begin();
-    UpdatePhaseDisplay();  // Show initial phase
-
-    // Initialize coin sensor
-    ResetCoinSensor();
-
-    // Detach any existing interrupt
-    detachInterrupt(digitalPinToInterrupt(INPUT_PIN_COIN));
-    delay(50);
+    // Set up IR receiver
+    Serial.print("\nInitializing HX1838 IR receiver on pin ");
+    Serial.println(INPUT_PIN_IR_RX);
     
-    // Attach fresh interrupt
-    attachInterrupt(digitalPinToInterrupt(INPUT_PIN_COIN), 
-                   Interrupt_CoinDeposit, 
-                   FALLING);
+    // Configure for HX1838 with NEC protocol
+    IrReceiver.begin(INPUT_PIN_IR_RX, ENABLE_LED_FEEDBACK, USE_DEFAULT_FEEDBACK_LED_PIN);
+    
+    Serial.println("HX1838 IR receiver initialized");
+    Serial.println("Protocol: NEC");
+    Serial.println("Point remote at receiver and press buttons");
+    
+    // Test the IR pin
+    Serial.print("IR Pin Initial State: ");
+    Serial.println(digitalRead(INPUT_PIN_IR_RX));
 
-    // Reset coin-related variables
-    m_numEnqueuedDeposits = 0;
-    m_uptimeLastCoinDetected = 0;
-    g_coinBlinkPending = false;
-    g_coinSensorLow = false;
+    // Print the enabled protocols
+    Serial.println("Enabled IR protocols:");
+    #if defined(DECODE_NEC)
+        Serial.println(" - NEC");
+    #endif
+    #if defined(DECODE_SONY)
+        Serial.println(" - SONY"); 
+    #endif
+    #if defined(DECODE_RC5)
+        Serial.println(" - RC5");
+    #endif
+    #if defined(DECODE_RC6) 
+        Serial.println(" - RC6");
+    #endif
+
+    DebugPrint( "  Up and running!\n\n" );
+
+    matrix.begin();
+    UpdateMatrixDisplay();  // Show initial phase
+
+    // Set up IR transmitter pin
+    pinMode(OUTPUT_PIN_IR_TX, OUTPUT);
+    digitalWrite(OUTPUT_PIN_IR_TX, LOW);
+    
+    // Initialize IR sender with explicit protocol settings
+    IrSender.begin(OUTPUT_PIN_IR_TX, ENABLE_LED_FEEDBACK, USE_DEFAULT_FEEDBACK_LED_PIN);
+    IrSender.enableIROut(38); // Set carrier frequency to 38kHz
 }
 
 //----------------------------------------------------------
 //----------------------------------------------------------
 void CCrowboxCore::Loop() 
 {
-    // Declare currentTime once at the start
-    unsigned long currentTime = millis();
-    static unsigned long lastInterruptCheck = 0;
-    static unsigned long lastCoinStateChange = 0;
-    static unsigned long lastCoinCheck = 0;
-    static bool lastCoinState = HIGH;
-
-    // Every 30 seconds, verify interrupt is working
-    if (currentTime - lastInterruptCheck > 30000) {
-        // Re-attach interrupt if needed
-        detachInterrupt(digitalPinToInterrupt(INPUT_PIN_COIN));
-        delay(50);
-        attachInterrupt(digitalPinToInterrupt(INPUT_PIN_COIN), 
-                       Interrupt_CoinDeposit, 
-                       FALLING);
-        lastInterruptCheck = currentTime;
-    }
-
-    // Monitor coin sensor state changes
-    bool currentCoinState = digitalRead(INPUT_PIN_COIN);
-    if (currentCoinState != lastCoinState) {
-        lastCoinStateChange = currentTime;
-        lastCoinState = currentCoinState;
+    static unsigned long lastDebugPrint = 0;
+    static int noSignalCounter = 0;
+    static uint32_t lastValidCode = 0;
+    static unsigned long lastIRTime = 0;
+    
+    // Check for IR remote signals
+    if (IrReceiver.decode()) {
+        uint32_t currentTime = millis();
+        uint32_t rawData = IrReceiver.decodedIRData.decodedRawData;
+        uint8_t address = (rawData >> 24) & 0xFF;
+        uint8_t command = (rawData >> 16) & 0xFF;
         
-        if (currentCoinState == HIGH) {
-            g_coinSensorLow = false;  // Reset when sensor returns HIGH
+        // Always show received codes for debugging
+        if (IrReceiver.decodedIRData.protocol == NEC &&
+            rawData != lastValidCode &&
+            (currentTime - lastIRTime) > 250 &&
+            address != 0xE7) {  // Still filter obvious noise
+            
+            Serial.println("\n*** IR Signal Received! ***");
+            Serial.print("Address: 0x");
+            Serial.println(address, HEX);
+            Serial.print("Command: 0x");
+            Serial.println(command, HEX);
+            Serial.print("Raw Data: 0x");
+            Serial.println(rawData, HEX);
+            
+            // Only process our known command codes
+            if (command == 0x45 || command == 0x46 || command == 0x47 || 
+                command == 0x44 || command == 0x08 || command == 0x5A || 
+                command == 0x16) {
+                
+                noSignalCounter = 0;
+                lastValidCode = rawData;
+                lastIRTime = currentTime;
+                
+                // Handle specific button presses
+                switch(command) {
+                    case 0x45:  // Button 1
+                    case 0x46:  // Button 2
+                    case 0x47:  // Button 3
+                    case 0x44:  // Button 4
+                        if (m_basketManualOverride) {
+                            Serial.println("Cannot change phase while in manual override mode");
+                        } else {
+                            switch(command) {
+                                case 0x45:
+                                    Serial.println("Setting to Phase 1");
+                                    SetTrainingPhase(PHASE_ONE);
+                                    break;
+                                case 0x46:
+                                    Serial.println("Setting to Phase 2");
+                                    SetTrainingPhase(PHASE_TWO);
+                                    break;
+                                case 0x47:
+                                    Serial.println("Setting to Phase 3");
+                                    SetTrainingPhase(PHASE_THREE);
+                                    break;
+                                case 0x44:
+                                    Serial.println("Setting to Phase 4");
+                                    SetTrainingPhase(PHASE_FOUR);
+                                    break;
+                            }
+                        }
+                        break;
+
+                    case 0x08:  // Left button - Open and lock basket
+                        Serial.println("Manual Override: Opening and locking basket");
+                        m_basketManualOverride = true;
+                        OpenRewardBasket();
+                        m_uptimeScheduledBasketClose = TIME_NEVER;
+                        UpdateMatrixDisplay();  // Update display to show 'O'
+                        break;
+
+                    case 0x5A:  // Right button - Close and lock basket
+                        Serial.println("Manual Override: Closing and locking basket");
+                        m_basketManualOverride = true;
+                        CloseRewardBasket();
+                        m_uptimeScheduledBasketClose = TIME_NEVER;
+                        UpdateMatrixDisplay();  // Update display to show 'C'
+                        break;
+
+                    case 0x16:  // * button - Return to normal operation (was 0x00)
+                        Serial.println("Returning to normal operation");
+                        m_basketManualOverride = false;  // Turn off manual override FIRST
+                        UpdateMatrixDisplay();  // Update display to show phase number
+                        
+                        // Now reset basket state based on current phase WITHOUT updating display
+                        switch(m_currentTrainingPhase) {
+                            case PHASE_ONE:
+                                OpenRewardBasket();
+                                m_uptimeScheduledBasketClose = TIME_NEVER;
+                                break;
+                            case PHASE_TWO:
+                                if (IsABirdOnThePerch()) {
+                                    OpenRewardBasket();
+                                } else {
+                                    CloseRewardBasket();
+                                }
+                                break;
+                            case PHASE_THREE:
+                            case PHASE_FOUR:
+                                CloseRewardBasket();
+                                m_uptimeScheduledBasketClose = TIME_NEVER;
+                                m_numEnqueuedDeposits = 0;
+                                break;
+                        }
+                        break;
+                    
+                    default:
+                        Serial.print("Unknown button (0x");
+                        Serial.print(command, HEX);
+                        Serial.println(")");
+                        break;
+                }
+            }
+            else {
+                Serial.println("Unknown command - not processed");
+            }
+            
+            Serial.println("---------------");
         }
+        
+        IrReceiver.resume();
     }
     
-    // Check for stuck sensor
-    if (currentCoinState == LOW && (currentTime - lastCoinStateChange > 1000)) {
-        // Sensor stuck low for too long
-        DebugPrint("Warning: Coin sensor stuck LOW - resetting\n");
-        g_coinSensorLow = false;
-        m_numEnqueuedDeposits = 0;  // Clear any pending deposits
-    }
-
-    // Check coin sensor state every 5 seconds
-    if (currentTime - lastCoinCheck > 5000) {
-        if (digitalRead(INPUT_PIN_COIN) == LOW) {
-            // Sensor has been low too long - possible stuck contact
-            DebugPrint("Warning: Coin sensor stuck LOW\n");
-            // Could add more recovery logic here
-        }
-        lastCoinCheck = currentTime;
-    }
-
-    // Handle pending coin blink
-    if (g_coinBlinkPending) {
-        g_coinBlinkPending = false;
-        BlinkLED(3);  // Safely blink now that we're outside the ISR
-    }
-
-    // Failsafe auto-close if door has been open too long
-    if (IsRewardBasketOpen() && (currentTime - doorOpenedAt > DOOR_MAX_OPEN_MS)) {
-        DebugPrint("Failsafe: Forcing basket to close!\n");
-        CloseRewardBasket();
+    // Debug output every 5 seconds
+    if (millis() - lastDebugPrint > 5000) {
+        lastDebugPrint = millis();
+        Serial.print("Waiting for IR signals... (");
+        Serial.print(noSignalCounter++);
+        Serial.println(" intervals without signal)");
     }
 
     // Take a quick sample of the uptime in milliseconds. We'll use this value
@@ -365,6 +542,23 @@ void CCrowboxCore::Loop()
     // Poll to see if the human operator has pressed the switch which is
     // used to change the selected training phase.
     CheckTrainingPhaseSwitch();
+
+    // Handle any pending IR transmissions
+    if (m_coinDetected) {
+        Serial.println("\n*** Transmitting Coin Detection IR Code ***");
+        Serial.print("Code: 0x");
+        Serial.println(IR_CODE_COIN, HEX);
+        SendIRCode(IR_CODE_COIN);
+        m_coinDetected = false;
+    }
+    
+    if (m_perchPressed) {
+        Serial.println("\n*** Transmitting Perch Detection IR Code ***");
+        Serial.print("Code: 0x");
+        Serial.println(IR_CODE_PERCH, HEX);
+        SendIRCode(IR_CODE_PERCH);
+        m_perchPressed = false;
+    }
 
     // Now we do some time arithmetic to figure out how long this loop took to
     // execute. If it's less than IDEAL_LOOP_MS, then we make the system 
@@ -462,23 +656,23 @@ cros_time_t CCrowboxCore::HowLongHasBirdBeenGone()
 //----------------------------------------------------------
 bool CCrowboxCore::EnqueueCoin()              
 {
-    unsigned long currentTime = millis();
-    
-    // Reduce minimum time between coins to 500ms
-    if (currentTime - m_uptimeLastCoinDetected < 500) {
-        return false;
-    }
-    
-    // Increase max queue size slightly
-    if (m_numEnqueuedDeposits >= 5) {
-        DebugPrint("Warning: Too many coins queued\n");
+    if( GetUptimeSeconds() - m_uptimeLastCoinDetected < 1.0f )
+    {
+        // We must only accept one coin deposit per second. Because of the
+        // type of switch we use to detect coin deposits (a conductive copper
+        // strip), there's a high likelihood of low-frequency
+        // contact bounces (10-20hz, etc) after the sensor is first struck
+        // by a rolling coin.
+        //
+        // So, when a coin hits the sensor and this function is called, we 
+        // will count the coin then ignore the coin sensor for one second. 
+        // Without this debouncing feature, a single coin might be counted 
+        // dozens of times as it rolls along the copper rail of the sensor.
         return false;
     }
     
     m_numEnqueuedDeposits++;    
-    m_uptimeLastCoinDetected = currentTime;
-    
-    DebugPrint("Coin detected and enqueued\n");
+    m_uptimeLastCoinDetected = GetUptimeSeconds();
     return true;
 }
 
@@ -501,19 +695,19 @@ void CCrowboxCore::RemoveEnqueuedCoin()
 //----------------------------------------------------------
 void CCrowboxCore::BlinkLED( int numTimes )
 {
-    for(unsigned char i = 0; i < numTimes; ++i)
+    for(  unsigned char i = 0 ; i < numTimes ; ++i )
     {
-        // Turn the LED on for a shorter moment (250ms instead of 500ms)
-        digitalWrite(OUTPUT_PIN_LED, HIGH);
-        delay(250);
+      // Turn the LED on for a moment
+      digitalWrite( OUTPUT_PIN_LED, HIGH );
+      delay( 500 );
 
-        // Now off for a shorter moment
-        digitalWrite(OUTPUT_PIN_LED, LOW);
-        delay(250);
+      // Now off for a moment
+      digitalWrite( OUTPUT_PIN_LED, LOW );
+      delay( 500 );
     }
 
     // Make sure the LED is off when we are done.
-    digitalWrite(OUTPUT_PIN_LED, LOW);
+    digitalWrite( OUTPUT_PIN_LED, LOW );
 }
 
 //----------------------------------------------------------
@@ -556,13 +750,14 @@ void CCrowboxCore::DetachBasketServo()
 //----------------------------------------------------------
 void CCrowboxCore::OpenRewardBasket()
 {
-    DebugPrint("OpenRewardBasket called.\n");
+    DebugPrint( "  Reward Basket OPENING....\n");
 
     // Don't bother with executing the state change if we are
     // already in the wished state.
     if( !IsRewardBasketOpen() )
     {
-        // Make sure the servo is attached to the signal pin
+        // Make sure the servo is attached to the signal pin. The last operation
+        // involving the servo may have detached it.
         AttachBasketServo();
         
         // For now we just whip the door open!
@@ -575,8 +770,10 @@ void CCrowboxCore::OpenRewardBasket()
         DetachBasketServo(); 
     }
     
-    doorOpenedAt = millis();  // Record when we opened
+    // Now we know the basket is open.
     m_basketState = BASKET_STATE_OPEN;
+    
+    DebugPrint( "Reward Basket is now OPEN!\n" );
 }
 
 //----------------------------------------------------------
@@ -594,58 +791,56 @@ void CCrowboxCore::OpenRewardBasket()
 //----------------------------------------------------------
 void CCrowboxCore::CloseRewardBasket()
 {
-    DebugPrint("CloseRewardBasket called.\n");
+  DebugPrint( "  Reward Basket CLOSING...\n");
+  
+  if( IsRewardBasketOpen() )
+  {
+    // Ensure the basket servo is attached
+    AttachBasketServo();
     
-    if( IsRewardBasketOpen() )
+    // We can't know the true position of the servo when this
+    // method is called so we start by sending the servo to 
+    // "full open" position and then delay() long enough for
+    // the servo to track to this position from wherever it was
+    // before. It's probably already open, but we have to be sure
+    // so we have to put it there ourselves.
+    m_basketServo.write( SERVO_POS_OPEN );
+    delay( 1000 );
+  
+    // Now we know where the servo is, truly, and can safely set the
+    // internal field that tracks position.
+    int servoPosition = SERVO_POS_OPEN;
+  
+    // We're going to close the basket lid over a series of small steps, a 
+    // little bit at a time. This gives critters an opportunity to get 
+    // their body out of the way before any significant pressure is applied.
+    // This is a safety feature that protects the animals that may use
+    // this CrowBox. DO NOT alter this behavior unless you're absolutely
+    // sure of what you're doing!
+    int servoStepSize = servoPosition / BASKET_CLOSE_NUM_STEPS;
+  
+    while( servoPosition > SERVO_POS_CLOSED )
     {
-        // Ensure the basket servo is attached
-        AttachBasketServo();
-        
-        // We can't know the true position of the servo when this
-        // method is called so we start by sending the servo to 
-        // "full open" position and then delay() long enough for
-        // the servo to track to this position from wherever it was
-        // before. It's probably already open, but we have to be sure
-        // so we have to put it there ourselves.
-        m_basketServo.write( SERVO_POS_OPEN );
-        delay( 1000 );
-      
-        // Now we know where the servo is, truly, and can safely set the
-        // internal field that tracks position.
-        int servoPosition = SERVO_POS_OPEN;
-      
-        // We're going to close the basket lid over a series of small steps, a 
-        // little bit at a time. This gives critters an opportunity to get 
-        // their body out of the way before any significant pressure is applied.
-        // This is a safety feature that protects the animals that may use
-        // this CrowBox. DO NOT alter this behavior unless you're absolutely
-        // sure of what you're doing!
-        int servoStepSize = servoPosition / BASKET_CLOSE_NUM_STEPS;
-      
-        while( servoPosition > SERVO_POS_CLOSED )
-        {
-          servoPosition -= servoStepSize;
-          m_basketServo.write( servoPosition );
-          delay( BASKET_CLOSE_STEP_DELAY_MS );
-          DebugPrint("...basket step...");
-        }   
-    }
+      servoPosition -= servoStepSize;
+      m_basketServo.write( servoPosition );
+      delay( BASKET_CLOSE_STEP_DELAY_MS );
+      DebugPrint("...basket step...");
+    }   
+  }
 
-    // Stuff the final closed position
-    m_basketServo.write( SERVO_POS_CLOSED );
-    delay( 400 );
-    m_basketState = BASKET_STATE_CLOSED;
-    
-    // Any time the sliding basket lid reaches the 'fully open' or 'fully closed'
-    // state, we detach the servo from the signal pin. This is an attempt to remedy 
-    // situations where some CrowBox users have observed their servos to continue 
-    // clicking or whining after the servo has finished moving. Detaching the servo
-    // will eliminate the signal that the Arduino is constantly sending to the servo.
-    DetachBasketServo();
-    
-    DebugPrint( "Reward basket closed and locked\n" );
-
-    lastTimeClosed = millis();  // Record when we closed
+  // Stuff the final closed position
+  m_basketServo.write( SERVO_POS_CLOSED );
+  delay( 400 );
+  m_basketState = BASKET_STATE_CLOSED;
+  
+  // Any time the sliding basket lid reaches the 'fully open' or 'fully closed'
+  // state, we detach the servo from the signal pin. This is an attempt to remedy 
+  // situations where some CrowBox users have observed their servos to continue 
+  // clicking or whining after the servo has finished moving. Detaching the servo
+  // will eliminate the signal that the Arduino is constantly sending to the servo.
+  DetachBasketServo();
+  
+  DebugPrint( "Reward basket closed and locked\n" );
 }
 
 //----------------------------------------------------------
@@ -656,19 +851,8 @@ void CCrowboxCore::CloseRewardBasket()
 //----------------------------------------------------------
 bool CCrowboxCore::Poll_IsPerchPressed()
 {
-    static bool lastPerchState = HIGH;
-    int result = digitalRead(INPUT_PIN_PERCH);
-    
-    if (result == LOW) {
-        // Only blink if this is a new perch press
-        if (lastPerchState == HIGH) {
-            BlinkLED(2); // Blink 2 times for perch press
-        }
-        lastPerchState = LOW;
-    } else {
-        lastPerchState = HIGH;
-    }
-    return result == LOW;
+  int result = digitalRead( INPUT_PIN_PERCH );
+  return result == LOW;
 }
 
 //----------------------------------------------------------
@@ -691,56 +875,28 @@ void CCrowboxCore::ScheduleBasketCloseWithDelay( cros_time_t delayInSeconds )
 //----------------------------------------------------------
 void CCrowboxCore::RunPhaseOneProtocol()
 {
-  // The PROTOCODE FOR THE PERCH & BIRD. Propagate to above the 
-  // call to the protocol functions!
-  
-  // Above all, we must ensure the basket remains open in Phase One
-  if( !IsRewardBasketOpen() )
-  {
-      // Open the basket but do not schedule an auto-close.
-      OpenRewardBasket();
-      
-      // In fact, make sure we squash the scheduled close order 
-      // in case there is one. For the record, this is probably 
-      // an unnecessary level of assurance. No such thing, I say!
-      m_uptimeScheduledBasketClose = TIME_NEVER;
-  }
-  
-  // If a bird is on the perch, logically speaking- This means
-  // more than knowing if the perch is depressed, it's about 
-  // having internal state that indicates that a bird is truly present.
-  //
-  // Even though the CrowBox doesn't really do anything with this
-  // information when observing Phase One of the training protocol,
-  // we run this code to keep the timers working properly and to
-  // service the camera interface code so that it works in Phase One.
-  if( IsABirdOnThePerch() )
-  {
-    // We know a bird is here. We next check the physical state of
-    // the perch and if it is NOT pressed, the bird has gone and 
-    // we need to handle that.
-    if( !Poll_IsPerchPressed() )
-    {
-      DebugPrint( "A customer has left the perch!\n" );
-      // Just record the time of departure. The lid will close in
-      // a little while, as a result of the call to ScheduleBasketCloseWithDelay()
-      // that was issued when this bird arrived.
-      m_uptimeWhenBirdDeparted = GetUptimeSeconds();
+    if (m_basketManualOverride) return;
+
+    // If a bird is on the perch...
+    if (IsABirdOnThePerch()) {
+        if (!Poll_IsPerchPressed()) {
+            DebugPrint("A customer has left the perch!\n");
+            m_uptimeWhenBirdDeparted = GetUptimeSeconds();
+        }
+    } else {
+        if (Poll_IsPerchPressed()) {
+            // EDGE CASE: A new bird has arrived!
+            DebugPrint("A customer has landed on the perch!\n");
+            m_uptimeWhenBirdLanded = GetUptimeSeconds();
+            RecordVideo(VIDEO_RECORD_DURATION_ARRIVAL);
+            
+            // Open basket first
+            OpenRewardBasket();
+            
+            // Then queue IR transmission
+            SetPerchPressed();
+        }
     }
-  }
-  else 
-  {
-    // No bird is still here from the last time we checked [the previous
-    // call to loop()], so we will look at the actual physical state of the perch.
-    // If the perch is pressed, a bird has just landed.
-    if( Poll_IsPerchPressed() )
-    {
-      // EDGE CASE: A new bird has arrived!
-      DebugPrint( "A customer has landed on the perch!\n" );
-      m_uptimeWhenBirdLanded = GetUptimeSeconds();
-      RecordVideo( VIDEO_RECORD_DURATION_ARRIVAL );    
-    }
-  }  
 }
 
 //----------------------------------------------------------
@@ -754,47 +910,27 @@ void CCrowboxCore::RunPhaseOneProtocol()
 //----------------------------------------------------------
 void CCrowboxCore::RunPhaseTwoProtocol()
 {
+    if (m_basketManualOverride) return;
 
-  // If a bird is on the perch, logically speaking- This means
-  // more than knowing if the perch is depressed, it's about 
-  // having internal state that indicates that a bird is truly present.
-  if( IsABirdOnThePerch() )
-  {
-    // We know a bird is here. We next check the physical state of
-    // the perch and if it is NOT pressed, the bird has gone and 
-    // we need to handle that.
-    if( !Poll_IsPerchPressed() )
-    {
-      DebugPrint( "Customer has left the perch!\n" );      
-      // Just record the time of departure. The lid will close in
-      // a little while, as a result of the call to ScheduleBasketCloseWithDelay()
-      // that was issued when this bird arrived.
-      m_uptimeWhenBirdDeparted = GetUptimeSeconds();
+    if (IsABirdOnThePerch()) {
+        if (!Poll_IsPerchPressed()) {
+            DebugPrint("Customer has left the perch!\n");
+            m_uptimeWhenBirdDeparted = GetUptimeSeconds();
+        }
+    } else {
+        if (Poll_IsPerchPressed()) {
+            DebugPrint("A customer has landed on the perch!\n");
+            m_uptimeWhenBirdLanded = GetUptimeSeconds();
+            RecordVideo(VIDEO_RECORD_DURATION_ARRIVAL);
+            
+            // Open basket first
+            OpenRewardBasket();
+            ScheduleBasketCloseWithDelay(BASKET_REMAIN_OPEN_DURATION);
+            
+            // Then queue IR transmission
+            SetPerchPressed();
+        }
     }
-  }
-  else 
-  {
-    // Still No bird here from the last time we checked [the previous
-    // call to loop()], so we will look at the actual physical state of the perch.
-    // If the perch is pressed, a bird has just landed.
-    if( Poll_IsPerchPressed() )
-    {
-      // EDGE CASE: A new bird has arrived!
-      DebugPrint( "A customer has landed on the perch!\n" );
-      m_uptimeWhenBirdLanded = GetUptimeSeconds();
-
-      RecordVideo( VIDEO_RECORD_DURATION_ARRIVAL );    
-
-      // Provide access to the reward basket
-      OpenRewardBasket();        
-
-      // Close the basket after a delay. This accomodates birds who stand
-      // on the perch and feed from the basket, but does not give them
-      // unlimited time to remove unlimited food from the basket and throw
-      // it somewhere else for later retrieval.
-      ScheduleBasketCloseWithDelay( BASKET_REMAIN_OPEN_DURATION );
-    }
-  }
 }      
 
 //----------------------------------------------------------
@@ -813,40 +949,15 @@ void CCrowboxCore::RunPhaseTwoProtocol()
 //----------------------------------------------------------
 void CCrowboxCore::RunPhaseThreeProtocol()
 {
-    static unsigned long lastResetTime = 0;
-    unsigned long currentTime = millis();
+    if (m_basketManualOverride) return;  // Skip if in manual override
+    if( m_numEnqueuedDeposits > 0 && !IsRewardBasketOpen() )
+    {
+        RemoveEnqueuedCoin();// Un-count this deposit since we're paying it off now.
 
-    // Reduce frequency of resets to avoid interrupting valid operations
-    if (currentTime - lastResetTime > 60000) { // Every minute instead of 30 seconds
-        ResetCoinSensor();
-        lastResetTime = currentTime;
-    }
+        OpenRewardBasket();// We're giving out food access in exchange for the deposit
 
-    // Validate state before processing deposits
-    if (m_basketState == BASKET_STATE_DONT_KNOW) {
-        CloseRewardBasket(); 
-        return;
-    }
-    
-    // Reduce minimum time between door operations
-    if (currentTime - lastTimeClosed < 2000) { // 2 seconds instead of 3
-        return;
-    }
-
-    if (m_numEnqueuedDeposits > 0 && !IsRewardBasketOpen()) {
-        // Only check for stuck sensor if it's been low for a very long time
-        if (!digitalRead(INPUT_PIN_COIN)) {
-            if (currentTime - m_uptimeLastCoinDetected > 5000) { // 5 seconds
-                DebugPrint("Warning: Coin sensor may be stuck LOW\n");
-                ResetCoinSensor();
-                return;
-            }
-        }
-        
-        DebugPrint("Processing coin deposit in Phase 3\n");
-        RemoveEnqueuedCoin();
-        OpenRewardBasket();
-        ScheduleBasketCloseWithDelay(BASKET_REMAIN_OPEN_DURATION);
+        // Set it up to close.
+        ScheduleBasketCloseWithDelay( BASKET_REMAIN_OPEN_DURATION );
     }
 }
 
@@ -865,7 +976,8 @@ void CCrowboxCore::RunPhaseThreeProtocol()
 // Crowbox.
 //----------------------------------------------------------
 void CCrowboxCore::RunPhaseFourProtocol()
-{   
+{
+    if (m_basketManualOverride) return;  // Skip if in manual override
     // Right now the only difference between Phase Three and Phase Four
     // protocols involves the hardware configuration of the Crowbox.
     // The software rules of Phase Four are identical to Phase Three,
@@ -885,36 +997,22 @@ void CCrowboxCore::RunPhaseFourProtocol()
 //----------------------------------------------------------
 void CCrowboxCore::CheckTrainingPhaseSwitch()
 {
-    static unsigned long lastSwitchTime = 0;
-    static bool lastSwitchState = HIGH;
-    
-    // Read current switch state
-    bool currentSwitchState = digitalRead(INPUT_PIN_PHASE_SELECT);
-    unsigned long currentTime = millis();
-    
-    // Check for switch press with debounce
-    if (currentSwitchState == LOW && lastSwitchState == HIGH && 
-        (currentTime - lastSwitchTime) > 250) { // 250ms debounce
-        
-        DebugPrint("Training switch pressed!\n");
-        
-        // Wait for release with timeout
-        unsigned long pressTime = currentTime;
-        while (digitalRead(INPUT_PIN_PHASE_SELECT) == LOW) {
-            if (millis() - pressTime > 3000) { // 3 second timeout
-                break;
-            }
-            delay(10);
-        }
-        
-        AdvanceCurrentTrainingPhase();
-        ReportCurrentTrainingPhase();
-        WriteCurrentTrainingPhaseToEEPROM();
-        
-        lastSwitchTime = currentTime;
+    if( digitalRead( INPUT_PIN_PHASE_SELECT ) != LOW )
+    {
+        // Button not depressed- do nothing more.
+        return;
     }
+
+    DebugPrint(" Training switch pressed!\n" ); 
     
-    lastSwitchState = currentSwitchState;
+    // Advance to the next training phase
+    AdvanceCurrentTrainingPhase();
+    
+    // Update the LED matrix display to show new phase
+    UpdateMatrixDisplay();
+    
+    // Delay a bit to debounce the switch
+    delay( 500 );
 }
 
 //----------------------------------------------------------
@@ -923,67 +1021,17 @@ void CCrowboxCore::CheckTrainingPhaseSwitch()
 //----------------------------------------------------------
 void CCrowboxCore::AdvanceCurrentTrainingPhase()
 {
-    unsigned char oldPhase = m_currentTrainingPhase;
+    // Get the next phase number
+    unsigned char nextPhase = m_currentTrainingPhase + 1;
     
-    if( ++m_currentTrainingPhase > PHASE_FOUR )
+    // If we've gone beyond Phase Four, wrap back to Phase One
+    if( nextPhase > PHASE_FOUR )
     {
-        m_currentTrainingPhase = PHASE_ONE;
-    }
-
-    // Re-initialize critical components
-    DebugPrint("Re-initializing after phase change...\n");
-
-    // Reset coin sensor first
-    ResetCoinSensor();
-
-    // Reset all state variables
-    m_numEnqueuedDeposits = 0;
-    g_coinBlinkPending = false;
-    g_coinSensorLow = false;
-    lastTimeClosed = 0;
-    doorOpenedAt = 0;
-
-    // Detach and reattach interrupts
-    detachInterrupt(digitalPinToInterrupt(INPUT_PIN_COIN));
-    detachInterrupt(digitalPinToInterrupt(INPUT_PIN_PERCH));
-    
-    // Re-initialize pins
-    pinMode(INPUT_PIN_COIN, INPUT_PULLUP);
-    pinMode(INPUT_PIN_PERCH, INPUT_PULLUP);
-    
-    // Small delay to let pins stabilize
-    delay(100);
-    
-    // Reattach interrupts
-    attachInterrupt(digitalPinToInterrupt(INPUT_PIN_COIN), 
-                   Interrupt_CoinDeposit, 
-                   FALLING);
-
-    // Reset servo state
-    DetachBasketServo();
-    delay(100);
-    AttachBasketServo();
-    
-    // Special handling for transition to phase 3
-    if (oldPhase == PHASE_TWO && m_currentTrainingPhase == PHASE_THREE) {
-        // Force basket to fully close when entering phase 3
-        m_basketState = BASKET_STATE_DONT_KNOW;  // Force re-initialization
-        CloseRewardBasket();
-        delay(1000);  // Give extra time to ensure closure
-    }
-    // Ensure basket is in known state
-    else if (m_basketState == BASKET_STATE_DONT_KNOW || IsRewardBasketOpen()) {
-        CloseRewardBasket();
+        nextPhase = PHASE_ONE;
     }
     
-    m_uptimeScheduledBasketClose = TIME_NEVER;
-
-    // Update the display
-    UpdatePhaseDisplay();
-
-    DebugPrint("Phase change complete - new phase: ");
-    DebugPrint(String(m_currentTrainingPhase).c_str());
-    DebugPrint("\n");
+    // Set the new phase (this will also update the display)
+    SetTrainingPhase(nextPhase);
 }
 
 //----------------------------------------------------------
@@ -1119,94 +1167,126 @@ void CCrowboxCore::StopRecordingVideo()
   // a serial communication message.
 }
 
-void CCrowboxCore::UpdatePhaseDisplay()
+//----------------------------------------------------------
+// Add this new method implementation
+void CCrowboxCore::SetTrainingPhase(unsigned char phase)
 {
-    // Each array has 8 rows and 12 columns
-    // Roman numerals I, II, III, IIII (reading bottom to top)
+    // Validate the phase
+    if (phase < PHASE_ONE || phase > PHASE_FOUR) {
+        ReportSystemError(kError_BadTrainingPhase);
+        return;
+    }
 
-    static uint8_t one[8][12] = {  // I
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0}
-    };
+    // Set the new phase
+    m_currentTrainingPhase = phase;
+    
+    // Store it in EEPROM
+    WriteCurrentTrainingPhaseToEEPROM();
+    
+    // Report the change
+    Serial.print("Training phase set to: ");
+    Serial.println(phase);
+    ReportCurrentTrainingPhase();
 
-    static uint8_t two[8][12] = {  // II
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0}
-    };
-
-    static uint8_t three[8][12] = {  // III
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0}
-    };
-
-    static uint8_t four[8][12] = {  // IIII
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0},
-        {0,1,1,1,1,1,1,1,1,1,1,0},
-        {0,0,0,0,0,0,0,0,0,0,0,0}
-    };
-
-    // Display the appropriate pattern
-    switch (m_currentTrainingPhase) {
+    // Reset basket state based on phase
+    switch(phase) {
         case PHASE_ONE:
-            matrix.renderBitmap(one, 8, 12);
+            // Phase 1: Basket stays open
+            OpenRewardBasket();
+            m_uptimeScheduledBasketClose = TIME_NEVER;
             break;
+            
         case PHASE_TWO:
-            matrix.renderBitmap(two, 8, 12);
+            // Phase 2: Basket stays open when bird is on perch
+            if (IsABirdOnThePerch()) {
+                OpenRewardBasket();
+            } else {
+                CloseRewardBasket();
+            }
             break;
+            
         case PHASE_THREE:
-            matrix.renderBitmap(three, 8, 12);
-            break;
         case PHASE_FOUR:
-            matrix.renderBitmap(four, 8, 12);
+            // Phases 3 & 4: Basket stays closed until coin deposit
+            CloseRewardBasket();
+            m_uptimeScheduledBasketClose = TIME_NEVER;
+            m_numEnqueuedDeposits = 0;  // Reset any pending rewards
             break;
+    }
+
+    UpdateMatrixDisplay();  // Update the LED matrix display
+}
+
+//----------------------------------------------------------
+// Add this new method implementation
+void CCrowboxCore::UpdateMatrixDisplay()
+{
+    ClearMatrixFrame();
+    
+    // Copy the appropriate pattern based on state
+    const byte (*pattern)[12];
+    
+    if (m_basketManualOverride) {
+        // Only show O or C when in manual override mode
+        if (IsRewardBasketOpen()) {
+            pattern = PATTERN_O;
+        } else {
+            pattern = PATTERN_C;
+        }
+    } else {
+        // Show phase number when not in manual override
+        switch(m_currentTrainingPhase) {
+            case PHASE_ONE:
+                pattern = PATTERN_I;
+                break;
+            case PHASE_TWO:
+                pattern = PATTERN_II;
+                break;
+            case PHASE_THREE:
+                pattern = PATTERN_III;
+                break;
+            case PHASE_FOUR:
+                pattern = PATTERN_IIII;
+                break;
+        }
+    }
+    
+    // Copy pattern to frame buffer
+    for(int i = 0; i < 8; i++) {
+        for(int j = 0; j < 12; j++) {
+            matrixFrame[i][j] = pattern[i][j];
+        }
+    }
+    
+    // Render the frame
+    matrix.renderBitmap(matrixFrame, 8, 12);
+}
+
+void CCrowboxCore::ClearMatrixFrame() {
+    for(int i = 0; i < 8; i++) {
+        for(int j = 0; j < 12; j++) {
+            matrixFrame[i][j] = 0;
+        }
     }
 }
 
-void CCrowboxCore::ResetCoinSensor()
+// Add this new method to send IR codes
+void CCrowboxCore::SendIRCode(uint32_t code)
 {
-    // Detach interrupt
-    detachInterrupt(digitalPinToInterrupt(INPUT_PIN_COIN));
+    // Completely delete and recreate IR receiver after sending
+    if (m_irReceiver != nullptr) {
+        delete m_irReceiver;
+        m_irReceiver = nullptr;
+    }
     
-    // Reset pin mode
-    pinMode(INPUT_PIN_COIN, INPUT_PULLUP);
+    // Send the code
+    IrSender.sendNEC(0x00, code, 32);
+    delay(50);  // Brief delay to ensure transmission completes
     
-    // Reset all coin-related variables
-    m_numEnqueuedDeposits = 0;
-    m_uptimeLastCoinDetected = 0;
-    g_coinBlinkPending = false;
-    g_coinSensorLow = false;
+    // Recreate and reinitialize the IR receiver
+    m_irReceiver = new IRrecv(INPUT_PIN_IR_RX);
+    m_irReceiver->enableIRIn();
     
-    // Let pin stabilize
-    delay(100);
-    
-    // Reattach interrupt
-    attachInterrupt(digitalPinToInterrupt(INPUT_PIN_COIN), 
-                   Interrupt_CoinDeposit, 
-                   FALLING);
-                   
-    DebugPrint("Coin sensor reset complete\n");
+    Serial.println("IR code sent and receiver reinitialized");
 }
 

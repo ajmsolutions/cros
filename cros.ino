@@ -14,6 +14,7 @@
 #include "cros_core.h"
 #include "cros_constants.h"
 #include "cros_types.h"
+#include "Arduino_LED_Matrix.h"
 
 //======================================
 // Allocate the core object right here 
@@ -24,6 +25,8 @@
 //======================================
 CCrowboxCore g_crOSCore;
 
+// Create the LED matrix object
+ArduinoLEDMatrix matrix;
 
 //======================================
 // Called by the Arduino system one time,

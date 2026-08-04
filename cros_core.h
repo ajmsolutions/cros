@@ -16,9 +16,16 @@
 
 #include <Arduino.h>
 #include <Servo.h>
-#include <Arduino_LED_Matrix.h>
 #include "cros_types.h"
 #include "cros_constants.h"
+#include "Arduino_LED_Matrix.h"
+
+// Forward declare IRrecv and decode_results
+class IRrecv;
+struct decode_results;
+
+// Create global LED matrix object
+extern ArduinoLEDMatrix matrix;
 
 //==========================================================
 // This fancy 'core' of ours is actually
@@ -32,6 +39,7 @@ public:
     // CTor/DTor
     //--------------------
     CCrowboxCore();
+    ~CCrowboxCore();
     
     //--------------------------------------
     // To promote understanding, these methods
@@ -64,6 +72,16 @@ public:
     bool EnqueueCoin();
     void RemoveEnqueuedCoin();
     
+    // IR transmitter codes and methods
+    static const uint32_t IR_CODE_PERCH = 0x00FF01FE;  // Modified code
+    static const uint32_t IR_CODE_COIN = 0x00FF02FD;   // Modified code
+    void SendIRCode(uint32_t code);
+
+    // Methods to set sensor flags
+    void SetCoinDetected() { m_coinDetected = true; }
+    void SetPerchPressed() { m_perchPressed = true; }
+
+protected:
     //--------------------------------------
     // Native Methods
     //--------------------------------------
@@ -103,10 +121,7 @@ public:
     void RecordVideo( cros_time_t duration );
     void StopRecordingVideo();
 
-    void UpdatePhaseDisplay();
-
-    // Add to public section of CCrowboxCore class
-    void ResetCoinSensor();
+    void SetTrainingPhase(unsigned char phase);
 
 private:
     cros_time_t m_uptimeWhenBirdLanded;
@@ -151,16 +166,25 @@ private:
     //--------------------------------------
     Servo m_basketServo;
 
-    // Add this near other private members
-    ArduinoLEDMatrix matrix;
+    IRrecv* m_irReceiver;
+    decode_results* m_irResults;
+
+    // Flag to indicate if basket is in manual override mode
+    bool m_basketManualOverride;
+
+    // LED Matrix frame buffer
+    byte matrixFrame[8][12];
+    
+    // Method to update matrix display
+    void UpdateMatrixDisplay();
+    void ClearMatrixFrame();
+
+    // Add these flags
+    volatile bool m_coinDetected;
+    volatile bool m_perchPressed;
 };
 
 extern CCrowboxCore g_crOSCore;
-
-// Add near the top, after includes
-extern volatile bool g_coinBlinkPending;
-extern unsigned long lastTimeClosed;
-extern unsigned long doorOpenedAt;
 
 #endif//CROS_CORE_H
 
